@@ -117,10 +117,17 @@ install_vnstat_speedtest() {
   title "Installing vnStat & speedtest-cli"
   apt-get install -y vnstat
   systemctl enable --now vnstat
-  # Official Ookla speedtest
-  if ! command -v speedtest >/dev/null 2>&1; then
-    curl -fsSL https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash
+  
+  # Fix for Ubuntu 22.04 - install speedtest from different source
+  if [[ "$RELEASE" == "22.04" ]]; then
+    apt-get install -y curl
+    curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash
     apt-get install -y speedtest
+  else
+    # For Ubuntu 20.04
+    apt-get install -y speedtest-cli
+    # Create alias for consistency
+    ln -sf /usr/bin/speedtest-cli /usr/local/bin/speedtest 2>/dev/null || true
   fi
   ok "vnStat + speedtest ready"
 }
@@ -128,11 +135,17 @@ install_vnstat_speedtest() {
 # ----------- Webmin -----------
 install_webmin() {
   title "Installing Webmin"
+  # Add Webmin repository key and source
   curl -fsSL https://download.webmin.com/jcameron-key.asc | gpg --dearmor -o /etc/apt/trusted.gpg.d/webmin.gpg
   echo "deb https://download.webmin.com/download/repository sarge contrib" >/etc/apt/sources.list.d/webmin.list
+  
+  # Update and install
   apt-get update -y
   apt-get install -y webmin
-  systemctl enable --now webmin
+  
+  # Enable and start service
+  systemctl enable webmin
+  systemctl start webmin
   ok "Webmin installed (default port 10000)"
 }
 
@@ -140,7 +153,9 @@ install_webmin() {
 install_nginx() {
   title "Installing Nginx"
   apt-get install -y nginx
-  systemctl enable --now nginx
+  systemctl enable nginx
+  systemctl start nginx
+  
   # Minimal site; reverse proxy for WS paths will be added after TLS decision.
   mkdir -p /var/www/html
   echo "<h1>OK</h1>" >/var/www/html/index.html
@@ -154,35 +169,54 @@ install_acme_issue_cert() {
     return 0
   fi
   title "Installing acme.sh and issuing certificate for ${DOMAIN}"
+  
+  # Install acme.sh
   curl -fsSL https://get.acme.sh | sh -s email="${EMAIL:-admin@$DOMAIN}"
+  
+  # Set default CA and issue certificate
   ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+  
   # Stop Nginx temporarily for standalone validation
   systemctl stop nginx || true
-  ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone --keylength ec-256 --force
-  mkdir -p /etc/ssl/xray
-  ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" \
-    --ecc \
-    --key-file       /etc/ssl/xray/privkey.pem \
-    --fullchain-file /etc/ssl/xray/fullchain.pem \
-    --reloadcmd     "systemctl reload nginx || true; systemctl reload xray || true"
+  
+  # Issue certificate
+  if ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone --keylength ec-256 --force; then
+    mkdir -p /etc/ssl/xray
+    ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" \
+      --ecc \
+      --key-file       /etc/ssl/xray/privkey.pem \
+      --fullchain-file /etc/ssl/xray/fullchain.pem \
+      --reloadcmd     "systemctl reload nginx || true; systemctl reload xray || true"
+    ok "Certificate obtained & installed"
+  else
+    warn "Failed to obtain certificate, using self-signed"
+    DOMAIN="" # Clear domain to trigger self-signed fallback
+  fi
+  
   systemctl start nginx || true
-  ok "Certificate obtained & installed"
 }
 
 # ----------- Xray (core) -----------
 install_xray() {
   title "Installing Xray-core"
-  bash <(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh) >/tmp/xray-install.log 2>&1
+  # Install Xray
+  bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" - >/tmp/xray-install.log 2>&1
+  
+  # Stop Xray temporarily for configuration
   systemctl stop xray || true
+  
+  # Create necessary directories
   mkdir -p /etc/xray /var/log/xray
   touch /var/log/xray/access.log /var/log/xray/error.log
+  chown -R nobody:nogroup /var/log/xray
+  
   ok "Xray installed"
 }
 
 # Generate random UUIDs and passwords
 generate_ids() {
-  VMESS_ID=$(cat /proc/sys/kernel/random/uuid)
-  VLESS_ID=$(cat /proc/sys/kernel/random/uuid)
+  VMESS_ID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || openssl rand -hex 16)
+  VLESS_ID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || openssl rand -hex 16)
   TROJAN_PW=$(openssl rand -hex 16)
   SS_PW=$(openssl rand -hex 16)
   SS_METHOD="chacha20-ietf-poly1305"
@@ -269,7 +303,12 @@ write_xray_config() {
 }
 JSON
 
-  systemctl enable --now xray
+  # Set proper permissions
+  chown -R nobody:nogroup /etc/xray
+  chmod -R 755 /etc/xray
+  
+  # Enable and start Xray
+  systemctl enable xray
   systemctl restart xray
   ok "Xray configured"
 
@@ -282,6 +321,12 @@ VLESS (WS): id=${VLESS_ID}, ws path=/vless, host=${DOMAIN:-$SERVER_IP}, port=${W
 TROJAN (TLS): password=${TROJAN_PW}, host=${DOMAIN:-$SERVER_IP}, port=${TLS_PORT}, tls=yes
 SHADOWSOCKS (TLS): method=${SS_METHOD}, password=${SS_PW}, host=${DOMAIN:-$SERVER_IP}, port=${TLS_PORT}, tls=yes
 SSH over WS: ws path=${SSHWS_PATH}, host=${DOMAIN:-$SERVER_IP}, port=${WS_PORT}
+
+# Connection URLs:
+VMESS: vmess://$(echo -n '{"add":"'${DOMAIN:-$SERVER_IP}'","aid":"0","host":"","id":"'${VMESS_ID}'","net":"ws","path":"/vmess","port":"'${WS_PORT}'","ps":"VPS-VMESS","tls":"","type":"none","v":"2"}' | base64 -w0)
+VLESS: vless://${VLESS_ID}@${DOMAIN:-$SERVER_IP}:${WS_PORT}?encryption=none&security=none&type=ws&path=%2Fvless#VPS-VLESS
+TROJAN: trojan://${TROJAN_PW}@${DOMAIN:-$SERVER_IP}:${TLS_PORT}?security=tls&type=tcp&headerType=none#VPS-TROJAN
+SS: ss://$(echo -n "${SS_METHOD}:${SS_PW}" | base64 -w0)@${DOMAIN:-$SERVER_IP}:${TLS_PORT}?security=tls&type=tcp#VPS-Shadowsocks
 INFO
 }
 
@@ -289,9 +334,14 @@ INFO
 install_dropbear() {
   title "Installing Dropbear"
   apt-get install -y dropbear
-  sed -i 's/^NO_START=.*$/NO_START=0/' /etc/default/dropbear || true
-  sed -i 's/^DROPBEAR_PORT=.*$/DROPBEAR_PORT=4422/' /etc/default/dropbear || echo "DROPBEAR_PORT=4422" >> /etc/default/dropbear
-  systemctl enable --now dropbear
+  
+  # Configure Dropbear
+  sed -i 's/^NO_START=.*$/NO_START=0/' /etc/default/dropbear 2>/dev/null || true
+  sed -i 's/^DROPBEAR_PORT=.*$/DROPBEAR_PORT=4422/' /etc/default/dropbear 2>/dev/null || echo "DROPBEAR_PORT=4422" >> /etc/default/dropbear
+  
+  # Enable and start service
+  systemctl enable dropbear
+  systemctl start dropbear
   ok "Dropbear on port 4422"
 }
 
@@ -299,9 +349,13 @@ install_dropbear() {
 install_stunnel() {
   title "Installing Stunnel4"
   apt-get install -y stunnel4
+  
+  # Create SSL certificate
   mkdir -p /etc/stunnel
   openssl req -new -x509 -days 3650 -nodes -subj "/CN=$(hostname)" -out /etc/stunnel/stunnel.pem -keyout /etc/stunnel/stunnel.pem
   chmod 600 /etc/stunnel/stunnel.pem
+  
+  # Configure Stunnel
   cat >/etc/stunnel/stunnel.conf <<CONF
 setuid = stunnel4
 setgid = stunnel4
@@ -314,14 +368,22 @@ accept = 444
 connect = 127.0.0.1:22
 cert = /etc/stunnel/stunnel.pem
 CONF
+  
+  # Enable and start service
   sed -i 's/ENABLED=0/ENABLED=1/' /etc/default/stunnel4
-  systemctl enable --now stunnel4
+  systemctl enable stunnel4
+  systemctl start stunnel4
   ok "Stunnel on 444 -> 22"
 }
 
 # ----------- Nginx reverse proxy for WS paths -----------
 configure_nginx() {
   title "Configuring Nginx"
+  
+  # Remove default site if exists
+  rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+  
+  # Create Nginx configuration
   cat >/etc/nginx/sites-available/vpspanel.conf <<NGX
 server {
     listen ${WS_PORT};
@@ -337,6 +399,8 @@ server {
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "Upgrade";
         proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     }
     location /vless {
         proxy_redirect off;
@@ -345,6 +409,8 @@ server {
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "Upgrade";
         proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     }
     location ${SSHWS_PATH} {
         proxy_redirect off;
@@ -353,10 +419,16 @@ server {
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "Upgrade";
         proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     }
 }
 NGX
+  
+  # Enable the site
   ln -sf /etc/nginx/sites-available/vpspanel.conf /etc/nginx/sites-enabled/vpspanel.conf
+  
+  # Test and reload Nginx
   nginx -t
   systemctl reload nginx
   ok "Nginx reverse proxy ready"
@@ -365,12 +437,19 @@ NGX
 # ----------- Firewall -----------
 setup_firewall() {
   title "Configuring UFW"
+  
+  # Reset UFW
+  ufw --force reset
+  
+  # Allow necessary ports
   ufw allow 22/tcp
   ufw allow 4422/tcp   # Dropbear
   ufw allow 444/tcp    # Stunnel
   ufw allow ${WS_PORT}/tcp
   ufw allow ${TLS_PORT}/tcp
   ufw allow 10000/tcp  # Webmin
+  
+  # Enable UFW
   ufw --force enable
   ok "Firewall enabled"
 }
@@ -510,27 +589,36 @@ print_summary() {
   echo "Webmin     : https://${DOMAIN:-$SERVER_IP}:10000/"
   echo
   echo "Client details saved at /etc/vpspanel/clients.txt"
+  echo
+  read -n 1 -s -r -p "Press any key to reboot the system..."
+  echo
+  reboot
 }
 
 # ==================== MAIN ====================
-require_root
-detect_os
-ask_inputs
-install_base
-setup_swap
-enable_bbr
-install_vnstat_speedtest
-install_webmin
-install_nginx
-install_xray
-install_acme_issue_cert
-write_xray_config
-configure_nginx
-install_dropbear
-install_stunnel
-setup_firewall
-install_menu
-print_summary
+main() {
+  require_root
+  detect_os
+  ask_inputs
+  install_base
+  setup_swap
+  enable_bbr
+  install_vnstat_speedtest
+  install_webmin
+  install_nginx
+  install_xray
+  install_acme_issue_cert
+  write_xray_config
+  configure_nginx
+  install_dropbear
+  install_stunnel
+  setup_firewall
+  install_menu
+  print_summary
+}
+
+# Run main function
+main "$@"
 exit 0
 EOF
 bash ubuntu-vps-autoinstall.sh
