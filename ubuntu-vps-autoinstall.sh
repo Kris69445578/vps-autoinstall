@@ -1,665 +1,406 @@
-#!/usr/bin/env bash
-# Auto VPS Setup for Ubuntu 22.04
-# Features: Xray-core (VLESS/VMess/Trojan over WS+TLS), Nginx reverse proxy, ACME TLS,
-# simple SSH account manager, and menu utility.
-# Tested on: Ubuntu 22.04 (Jammy)
-# Run as root:  bash auto-vps-setup-ubuntu2204.sh
-set -euo pipefail
+dateFromServer=$(curl -v --insecure --silent https://google.com/ 2>&1 | grep Date | sed -e 's/< Date: //')
 
-# ------------------------ Helper Functions ------------------------
-log() { echo -e "\e[1;32m[+] $*\e[0m"; }
-warn() { echo -e "\e[1;33m[!] $*\e[0m"; }
-err() { echo -e "\e[1;31m[x] $*\e[0m" >&2; }
-die() { err "$*"; exit 1; }
+# // Root Checking
+if [ "${EUID}" -ne 0 ]; then
+		echo -e "${EROR} Please Run This Script As Root User !"
+		exit 1
+fi
+clear
+# // Exporting Language to UTF-8
+export LANG='en_US.UTF-8'
+export LANGUAGE='en_US.UTF-8'
 
-require_root() {
-  [[ $EUID -eq 0 ]] || die "Run as root: sudo -i && bash $0"
-}
+# // Export Color & Information
+export RED='\033[0;31m'
+export GREEN='\033[0;32m'
+export YELLOW='\033[0;33m'
+export BLUE='\033[0;34m'
+export PURPLE='\033[0;35m'
+export CYAN='\033[0;36m'
+export LIGHT='\033[0;37m'
+export NC='\033[0m'
+BIRed='\033[1;91m'
+red='\e[1;31m'
+bo='\e[1m'
+red='\e[1;31m'
+green='\e[0;32m'
+yell='\e[1;33m'
+tyblue='\e[1;36m'
+purple() { echo -e "\\033[35;1m${*}\\033[0m"; }
+tyblue() { echo -e "\\033[36;1m${*}\\033[0m"; }
+yellow() { echo -e "\\033[33;1m${*}\\033[0m"; }
+green() { echo -e "\\033[32;1m${*}\\033[0m"; }
+red() { echo -e "\\033[31;1m${*}\\033[0m"; }
+# // Export Banner Status Information
+export EROR="[${RED} ERROR ${NC}]"
+export INFO="[${YELLOW} INFO ${NC}]"
+export OKEY="[${GREEN} OKEY ${NC}]"
+export PENDING="[${YELLOW} PENDING ${NC}]"
+export SEND="[${YELLOW} SEND ${NC}]"
+export RECEIVE="[${YELLOW} RECEIVE ${NC}]"
 
-require_ubuntu_2204() {
-  . /etc/os-release
-  if [[ "${ID:-}" != "ubuntu" || "${VERSION_ID:-}" != "22.04" ]]; then
-    warn "This script is intended for Ubuntu 22.04. Detected: ${PRETTY_NAME:-unknown}."
-    read -rp "Continue anyway? [y/N]: " ans
-    [[ "${ans,,}" == "y" ]] || die "Aborted."
+# // Export Align
+export BOLD="\e[1m"
+export WARNING="${RED}\e[5m"
+export UNDERLINE="\e[4m"
+
+# // Exporting URL Host
+export Server_URL="raw.githubusercontent.com/NevermoreSSH/Blueblue/main/test"
+export Server1_URL="raw.githubusercontent.com/NevermoreSSH/Blueblue/main/limit"
+export Server_Port="443"
+export Server_IP="underfined"
+export Script_Mode="Stable"
+export Auther=".geovpn"
+
+# // Exporting Script Version
+export VERSION="1.1"
+ 
+# // Exporint IP AddressInformation
+export IP=$( curl -s https://ipinfo.io/ip/ )
+
+# // Set Time To Kuala_Lumpur / GMT +8
+ln -fs /usr/share/zoneinfo/Asia/Kuala_Lumpur /etc/localtime
+
+# // cek old script
+if [[ -r /etc/xray/domain ]]; then
+
+echo -e "${INFO} Having Script Detected !"
+echo -e "${INFO} If You Replacing Script, All Client Data On This VPS Will Be Cleanup !"
+read -p "Are You Sure Wanna Replace Script ? (Y/N) " josdong
+if [[ $josdong == "Y" ]]; then
+clear
+echo -e "${INFO} Starting Replacing Script !"
+elif [[ $josdong == "y" ]]; then
+clear
+echo -e "${INFO} Starting Replacing Script !"
+rm -rf /var/lib/scrz-prem 
+elif [[ $josdong == "N" ]]; then
+echo -e "${INFO} Action Canceled !"
+exit 1
+elif [[ $josdong == "n" ]]; then
+echo -e "${INFO} Action Canceled !"
+exit 1
+else
+echo -e "${EROR} Your Input Is Wrong !"
+exit 1
+fi
+clear
+fi
+echo -e "${GREEN}Starting Installation............${NC}"
+# // Go To Root Directory
+cd /root/
+# // Remove
+apt-get remove --purge nginx* -y
+apt-get remove --purge nginx-common* -y
+apt-get remove --purge nginx-full* -y
+apt-get remove --purge dropbear* -y
+apt-get remove --purge stunnel4* -y
+apt-get remove --purge apache2* -y
+apt-get remove --purge ufw* -y
+apt-get remove --purge firewalld* -y
+apt-get remove --purge exim4* -y
+apt autoremove -y
+
+# // Update
+apt update -y
+
+# // Install Requirement Tools
+apt-get --reinstall --fix-missing install -y sudo dpkg psmisc socat jq ruby wondershaper python2 tmux nmap bzip2 gzip coreutils wget screen rsyslog iftop htop net-tools zip unzip wget vim net-tools curl nano sed screen gnupg gnupg1 bc apt-transport-https build-essential gcc g++ automake make autoconf perl m4 dos2unix dropbear libreadline-dev zlib1g-dev libssl-dev dirmngr libxml-parser-perl neofetch git lsof iptables iptables-persistent
+apt-get --reinstall --fix-missing install -y libreadline-dev zlib1g-dev libssl-dev python2 screen curl jq bzip2 gzip coreutils rsyslog iftop htop zip unzip net-tools sed gnupg gnupg1 bc sudo apt-transport-https build-essential dirmngr libxml-parser-perl neofetch screenfetch git lsof openssl easy-rsa fail2ban tmux vnstat dropbear libsqlite3-dev socat cron bash-completion ntpdate xz-utils sudo apt-transport-https gnupg2 gnupg1 dnsutils lsb-release chrony
+gem install lolcat
+
+# // Update & Upgrade
+apt update -y
+apt upgrade -y
+apt dist-upgrade -y
+
+# // Clear
+clear
+clear && clear && clear
+clear;clear;clear
+
+# // Folder Sistem Yang Tidak Boleh Di Hapus
+mkdir -p /usr/bin
+# // Remove File & Directory
+rm -fr /usr/local/bin/xray
+rm -fr /usr/local/bin/stunnel
+rm -fr /usr/local/bin/stunnel5
+rm -fr /etc/nginx
+rm -fr /var/lib/scrz-prem/
+rm -fr /usr/bin/xray
+rm -fr /etc/xray
+rm -fr /usr/local/etc/xray
+# // Making Directory 
+mkdir -p /etc/nginx
+mkdir -p /var/lib/scrz-prem/
+mkdir -p /usr/bin/xray
+mkdir -p /etc/xray
+mkdir -p /usr/local/etc/xray
+
+#rm -fr /etc/xray/domain
+# // String / Request Data
+mkdir -p /var/lib/scrz-prem >/dev/null 2>&1
+echo "IP=$host" >> /var/lib/scrz-prem/ipvps.conf
+echo $host > /etc/xray/domain
+wget https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/cf.sh && chmod +x cf.sh && ./cf.sh
+
+sleep 2
+
+#install jembot
+echo -e "$white\033[0;34m┌─────────────────────────────────────────┐${NC}"
+echo -e "                          ⇱ INSTALL DOMAIN ⇲            "
+echo -e "$white\033[0;34m└─────────────────────────────────────────┘${NC}"
+sleep 1
+wget https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/cf.sh && chmod +x cf.sh && ./cf.sh
+#install jembot
+echo -e "$white\033[0;34m┌─────────────────────────────────────────┐${NC}"
+echo -e " \E[41;1;39m           ⇱ Install Jembot ⇲            \E[0m$NC"
+echo -e "$white\033[0;34m└─────────────────────────────────────────┘${NC}"
+sleep 1 
+wget -q https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/jembot.sh && chmod +x jembot.sh && ./jembot.sh
+#install ssh-vpn
+echo -e "$white\033[0;34m┌─────────────────────────────────────────┐${NC}"
+echo -e " \E[41;1;39m          ⇱ Install SSH / WS ⇲           \E[0m$NC"
+echo -e "$white\033[0;34m└─────────────────────────────────────────┘${NC}"
+sleep 1
+wget -q https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/ssh-vpn.sh && chmod +x ssh-vpn.sh && ./ssh-vpn.sh
+#install ins-xray
+echo -e "$white\033[0;34m┌─────────────────────────────────────────┐${NC}"
+echo -e " \E[41;1;39m            ⇱ Install Xray ⇲             \E[0m$NC"
+echo -e "$white\033[0;34m└─────────────────────────────────────────┘${NC}"
+sleep 1 
+wget -q https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/ins-xray.sh && chmod +x ins-xray.sh && ./ins-xray.sh
+wget -q https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/set-br.sh && chmod +x set-br.sh && ./set-br.sh
+
+# // Download Data
+echo -e "${GREEN}Download Data${NC}"
+wget -q -O /usr/bin/add-ws "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/add-ws.sh"
+wget -q -O /usr/bin/add-ssws "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/add-ssws.sh"
+wget -q -O /usr/bin/add-socks "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/add-socks.sh"
+wget -q -O /usr/bin/add-vless "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/add-vless.sh"
+wget -q -O /usr/bin/add-tr "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/add-tr.sh"
+wget -q -O /usr/bin/add-trgo "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/add-trgo.sh"
+wget -q -O /usr/bin/autoreboot "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/autoreboot.sh"
+wget -q -O /usr/bin/restart "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/restart.sh"
+wget -q -O /usr/bin/tendang "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/tendang.sh"
+wget -q -O /usr/bin/clearlog "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/clearlog.sh"
+wget -q -O /usr/bin/running "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/running.sh"
+wget -q -O /usr/bin/cek-trafik "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/cek-trafik.sh"
+wget -q -O /usr/bin/cek-speed "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/speedtes_cli.py"
+wget -q -O /usr/bin/cek-bandwidth "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/cek-bandwidth.sh"
+wget -q -O /usr/bin/cek-ram "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/ram.sh"
+wget -q -O /usr/bin/limit-speed "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/limit-speed.sh"
+wget -q -O /usr/bin/menu-vless "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/menu-vless.sh"
+wget -q -O /usr/bin/menu-vmess "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/menu-vmess.sh"
+wget -q -O /usr/bin/menu-socks "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/menu-socks.sh"
+wget -q -O /usr/bin/menu-ss "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/menu-ss.sh"
+wget -q -O /usr/bin/menu-trojan "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/menu-trojan.sh"
+wget -q -O /usr/bin/menu-trgo "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/menu-trgo.sh"
+wget -q -O /usr/bin/menu-ssh "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/menu-ssh.sh"
+wget -q -O /usr/bin/menu-bckp "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/menu-bckp-telegram.sh"
+wget -q -O /usr/bin/menu-bckp "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/menu-bckp-github.sh"
+wget -q -O /usr/bin/bckp "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/bckpbot.sh"
+wget -q -O /usr/bin/usernew "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/usernew.sh"
+# wget -q -O /usr/bin/menu "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/menu.sh"
+wget -q -O /usr/bin/menu "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/menu4.sh"
+wget -q -O /usr/bin/wbm "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/webmin.sh"
+wget -q -O /usr/bin/xp "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/xp.sh"
+wget -q -O /usr/bin/update "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/update.sh"
+wget -q -O /usr/bin/dns "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/dns.sh"
+wget -q -O /usr/bin/netf "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/netf.sh"
+wget -q -O /usr/bin/bbr "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/bbr.sh"
+#wget -q -O /usr/bin/del-xrays "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/del-xrays.sh"
+#wget -q -O /usr/bin/user-xrays "https://raw.githubusercontent.com/NevermoreSSH/Blueblue/main/user-xrays.sh"
+chmod +x /usr/bin/add-ws
+chmod +x /usr/bin/add-ssws
+chmod +x /usr/bin/add-socks
+chmod +x /usr/bin/add-vless
+chmod +x /usr/bin/add-tr
+chmod +x /usr/bin/add-trgo
+chmod +x /usr/bin/usernew
+chmod +x /usr/bin/autoreboot
+chmod +x /usr/bin/restart
+chmod +x /usr/bin/tendang
+chmod +x /usr/bin/clearlog
+chmod +x /usr/bin/running
+chmod +x /usr/bin/cek-trafik
+chmod +x /usr/bin/cek-speed
+chmod +x /usr/bin/cek-bandwidth
+chmod +x /usr/bin/cek-ram
+chmod +x /usr/bin/limit-speed
+chmod +x /usr/bin/menu-vless
+chmod +x /usr/bin/menu-vmess
+chmod +x /usr/bin/menu-ss
+chmod +x /usr/bin/menu-socks
+chmod +x /usr/bin/menu-trojan
+chmod +x /usr/bin/menu-trgo
+chmod +x /usr/bin/menu-ssh
+chmod +x /usr/bin/menu-bckp
+chmod +x /usr/bin/menu
+chmod +x /usr/bin/bckp
+chmod +x /usr/bin/wbm
+chmod +x /usr/bin/xp
+chmod +x /usr/bin/update
+chmod +x /usr/bin/dns
+chmod +x /usr/bin/netf
+chmod +x /usr/bin/bbr
+#chmod +x /usr/bin/del-xrays
+#chmod +x /usr/bin/user-xrays
+
+
+# > install gotop
+    gotop_latest="$(curl -s https://api.github.com/repos/NevermoreSSH/gotop/releases | grep tag_name | sed -E 's/.*"v(.*)".*/\1/' | head -n 1)"
+    gotop_link="https://github.com/NevermoreSSH/gotop/releases/download/gotopV4/gotop_v4.2.0_linux_amd64.deb"
+    curl -sL "$gotop_link" -o /tmp/gotop.deb
+    dpkg -i /tmp/gotop.deb >/dev/null 2>&1
+
+
+# > Setup Crontab
+echo "0 0 * * * root xp" >> /etc/crontab
+echo "0 1 * * * root delete" >> /etc/crontab
+echo "0 2 * * * root cleaner" >> /etc/crontab
+echo "0 3 * * * root /usr/bin/xp" >> /etc/crontab
+echo "0 4 * * * root /usr/bin/delete" >> /etc/crontab
+echo "0 7 * * * root /usr/bin/cleaner" >> /etc/crontab
+echo "0 5 * * * root reboot" >> /etc/crontab
+echo "0 6 * * * root backup" >> /etc/crontab
+echo "0 23 * * * root backup" >> /etc/crontab
+echo "5 23 * * * root /usr/bin/backup" >> /etc/crontab
+cd
+
+#cat > /etc/cron.d/re_otm <<-END
+#SHELL=/bin/sh
+#PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+#0 7 * * * root /sbin/reboot
+#END
+
+cat > /etc/cron.d/xp_otm <<-END
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+2 0 * * * root /usr/bin/xp
+END
+
+cat > /etc/cron.d/cl_otm <<-END
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+2 1 * * * root /usr/bin/clearlog
+END
+
+cat > /home/re_otm <<-END
+7
+END
+
+service cron restart >/dev/null 2>&1
+service cron reload >/dev/null 2>&1
+
+clear
+cat> /root/.profile << END
+# ~/.profile: executed by Bourne-compatible login shells.
+
+if [ "$BASH" ]; then
+  if [ -f ~/.bashrc ]; then
+    . ~/.bashrc
   fi
-}
+fi
 
-cmd_exist() { command -v "$1" >/dev/null 2>&1; }
-
-# ------------------------ Variables ------------------------
-XRAY_VER="latest"
-XRAY_DIR="/etc/xray"
-NGINX_DIR="/etc/nginx"
-CERT_DIR="/etc/ssl/xray"
-ACME_HOME="/root/.acme.sh"
-DOMAIN="${DOMAIN:-}"
-EMAIL="${EMAIL:-}"
-WWW_ROOT="/var/www/html"
-IPV4="$(curl -4s https://api.ipify.org || true)"
-
-# ------------------------ Interactive Input ------------------------
-ask_inputs() {
-  echo
-  log "Basic configuration"
-  if [[ -z "$DOMAIN" ]]; then
-    read -rp "Enter your domain pointing to this server (A record): " DOMAIN
-  fi
-  if [[ -z "$EMAIL" ]]; then
-    read -rp "Enter your email for Let's Encrypt notices (optional): " EMAIL || true
-  fi
-  [[ -n "$DOMAIN" ]] || die "Domain is required for TLS (e.g., example.com)."
-  log "Using domain: $DOMAIN"
-  if [[ -n "$IPV4" ]]; then
-    log "Detected public IPv4: $IPV4"
-  fi
-}
-
-# ------------------------ Install Base Packages ------------------------
-install_base() {
-  log "Updating and installing packages..."
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get update -y
-  apt-get upgrade -y
-  apt-get install -y --no-install-recommends \
-    curl wget ca-certificates gnupg2 lsb-release apt-transport-https \
-    unzip jq socat cron nano ufw nginx
-  
-  # Enable services
-  systemctl enable --now cron
-  systemctl enable --now nginx
-}
-
-# ------------------------ ACME / TLS ------------------------
-install_acme() {
-  if [[ ! -d "$ACME_HOME" ]]; then
-    log "Installing acme.sh..."
-    curl -s https://get.acme.sh | sh -s email="${EMAIL:-admin@$DOMAIN}"
-    # Add acme.sh to PATH
-    export PATH="$HOME/.acme.sh:$PATH"
-  fi
-  # Ensure socat exists (for standalone HTTP)
-  "$ACME_HOME"/acme.sh --upgrade --auto-upgrade
-}
-
-issue_cert() {
-  mkdir -p "$CERT_DIR"
-  log "Stopping Nginx temporarily to issue a certificate (standalone mode)..."
-  systemctl stop nginx || true
-  
-  # Try standalone mode first
-  if "$ACME_HOME"/acme.sh --issue --standalone -d "$DOMAIN" --force; then
-    log "Certificate issued successfully using standalone mode"
-  else
-    warn "Standalone issuance failed. Trying webroot mode via Nginx."
-    # configure temporary webroot
-    systemctl start nginx
-    if "$ACME_HOME"/acme.sh --issue -d "$DOMAIN" -w "$WWW_ROOT" --force; then
-      log "Certificate issued successfully using webroot mode"
-    else
-      die "Certificate issuance failed."
-    fi
-  fi
-  
-  # Install certificate
-  "$ACME_HOME"/acme.sh --install-cert -d "$DOMAIN" \
-    --fullchain-file "$CERT_DIR/fullchain.pem" \
-    --key-file "$CERT_DIR/privkey.pem" \
-    --reloadcmd "systemctl reload nginx || true; systemctl reload xray || true"
-  chmod 600 "$CERT_DIR/privkey.pem"
-  log "TLS certificate installed at $CERT_DIR."
-}
-
-# ------------------------ Xray-core ------------------------
-install_xray() {
-  log "Installing Xray-core (${XRAY_VER})..."
-  # Download and run the installation script
-  bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
-  
-  # Check if xray is installed correctly
-  if [[ ! -f "/usr/local/bin/xray" ]]; then
-    err "Xray installation failed. Trying alternative method..."
-    
-    # Alternative installation method
-    apt-get install -y unzip
-    DOWNLOAD_URL="https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip"
-    TEMP_DIR="$(mktemp -d)"
-    curl -L -o "$TEMP_DIR/xray.zip" "$DOWNLOAD_URL"
-    unzip "$TEMP_DIR/xray.zip" -d "$TEMP_DIR"
-    install -m 755 "$TEMP_DIR/xray" /usr/local/bin/
-    install -d /usr/local/share/xray/
-    install -m 644 "$TEMP_DIR"/*.dat /usr/local/share/xray/
-    install -d /etc/xray/
-    install -m 644 "$TEMP_DIR/config.json" /etc/xray/
-    install -d /var/log/xray/
-    
-    # Create systemd service
-    cat > /etc/systemd/system/xray.service <<EOF
-[Unit]
-Description=Xray Service
-After=network.target nss-lookup.target
-
-[Service]
-User=root
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
-NoNewPrivileges=true
-ExecStart=/usr/local/bin/xray run -config /etc/xray/config.json
-Restart=on-failure
-RestartPreventExitStatus=23
-LimitNPROC=10000
-LimitNOFILE=1000000
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    
-    rm -rf "$TEMP_DIR"
-  fi
-  
-  systemctl stop xray || true
-}
-
-# ------------------------ Config Generation ------------------------
-gen_ids() {
-  # Check if xray binary exists and is executable
-  if [[ -f "/usr/local/bin/xray" ]]; then
-    VLESS_ID="$(/usr/local/bin/xray uuid)"
-    VMESS_ID="$(/usr/local/bin/xray uuid)"
-  else
-    # Fallback to OpenSSL if xray is not available
-    warn "Xray binary not found, using OpenSSL for UUID generation"
-    VLESS_ID="$(openssl rand -hex 16 | awk '{print substr($0,1,8)"-"substr($0,9,4)"-"substr($0,13,4)"-"substr($0,17,4)"-"substr($0,21,12)}')"
-    VMESS_ID="$(openssl rand -hex 16 | awk '{print substr($0,1,8)"-"substr($0,9,4)"-"substr($0,13,4)"-"substr($0,17,4)"-"substr($0,21,12)}')"
-  fi
-  
-  TROJAN_PSW="$(head -c 12 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 16)"
-  echo "$VLESS_ID" > /etc/xray/.vless_id
-  echo "$VMESS_ID" > /etc/xray/.vmess_id
-  echo "$TROJAN_PSW" > /etc/xray/.trojan_pw
-}
-
-write_xray_config() {
-  log "Writing Xray configuration..."
-  cat > "$XRAY_DIR/config.json" <<EOF
-{
-  "log": {
-    "loglevel": "warning",
-    "access": "/var/log/xray/access.log",
-    "error": "/var/log/xray/error.log"
-  },
-  "inbounds": [
-    {
-      "port": 10001,
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "$(cat /etc/xray/.vless_id)",
-            "email": "vless@${DOMAIN}"
-          }
-        ],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "ws",
-        "security": "none",
-        "wsSettings": {
-          "path": "/vless"
-        }
-      },
-      "sniffing": {
-        "enabled": true,
-        "destOverride": ["http", "tls"]
-      }
-    },
-    {
-      "port": 10002,
-      "protocol": "vmess",
-      "settings": {
-        "clients": [
-          {
-            "id": "$(cat /etc/xray/.vmess_id)",
-            "alterId": 0,
-            "email": "vmess@${DOMAIN}"
-          }
-        ]
-      },
-      "streamSettings": {
-        "network": "ws",
-        "security": "none",
-        "wsSettings": {
-          "path": "/vmess"
-        }
-      },
-      "sniffing": {
-        "enabled": true,
-        "destOverride": ["http", "tls"]
-      }
-    },
-    {
-      "port": 10003,
-      "protocol": "trojan",
-      "settings": {
-        "clients": [
-          {
-            "password": "$(cat /etc/xray/.trojan_pw)",
-            "email": "trojan@${DOMAIN}"
-          }
-        ]
-      },
-      "streamSettings": {
-        "network": "ws",
-        "security": "none",
-        "wsSettings": {
-          "path": "/trojan"
-        }
-      },
-      "sniffing": {
-        "enabled": true,
-        "destOverride": ["http", "tls"]
-      }
-    }
-  ],
-  "outbounds": [
-    {
-      "protocol": "freedom",
-      "tag": "direct"
-    },
-    {
-      "protocol": "blackhole",
-      "tag": "blocked"
-    }
-  ],
-  "routing": {
-    "domainStrategy": "AsIs",
-    "rules": [
-      {
-        "type": "field",
-        "ip": ["geoip:private"],
-        "outboundTag": "blocked"
-      }
-    ]
-  }
-}
-EOF
-  
-  # Create log directory and set permissions
-  mkdir -p /var/log/xray
-  chown -R nobody:nogroup /var/log/xray
-  chmod -R 755 /var/log/xray
-}
-
-write_nginx_config() {
-  log "Configuring Nginx reverse proxy..."
-  
-  # Create nginx config
-  cat > "$NGINX_DIR/sites-available/xray.conf" <<EOF
-server {
-    listen 80;
-    listen [::]:80;
-    server_name $DOMAIN;
-    root /var/www/html;
-    index index.html;
-    
-    # Security headers
-    add_header X-Frame-Options DENY always;
-    add_header X-Content-Type-Options nosniff always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    
-    location / {
-        try_files \$uri \$uri/ =404;
-    }
-    
-    location /vless {
-        proxy_redirect off;
-        proxy_pass http://127.0.0.1:10001;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    }
-    
-    location /vmess {
-        proxy_redirect off;
-        proxy_pass http://127.0.0.1:10002;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    }
-    
-    location /trojan {
-        proxy_redirect off;
-        proxy_pass http://127.0.0.1:10003;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    }
-    
-    # Block access to hidden files
-    location ~ /\. {
-        deny all;
-        access_log off;
-        log_not_found off;
-    }
-}
-
-server {
-    listen 443 ssl http2;
-    listen [::]:443 ssl http2;
-    server_name $DOMAIN;
-    
-    ssl_certificate /etc/ssl/xray/fullchain.pem;
-    ssl_certificate_key /etc/ssl/xray/privkey.pem;
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
-    ssl_prefer_server_ciphers off;
-    ssl_session_cache shared:SSL:10m;
-    ssl_session_timeout 10m;
-    
-    # Security headers
-    add_header Strict-Transport-Security "max-age=63072000" always;
-    add_header X-Frame-Options DENY always;
-    add_header X-Content-Type-Options nosniff always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    
-    root /var/www/html;
-    index index.html;
-    
-    location / {
-        try_files \$uri \$uri/ =404;
-    }
-    
-    location /vless {
-        proxy_redirect off;
-        proxy_pass http://127.0.0.1:10001;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    }
-    
-    location /vmess {
-        proxy_redirect off;
-        proxy_pass http://127.0.0.1:10002;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    }
-    
-    location /trojan {
-        proxy_redirect off;
-        proxy_pass http://127.0.0.1:10003;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    }
-    
-    # Block access to hidden files
-    location ~ /\. {
-        deny all;
-        access_log off;
-        log_not_found off;
-    }
-}
-EOF
-  
-  # Enable the site
-  rm -f "$NGINX_DIR/sites-enabled/default" || true
-  ln -sf "$NGINX_DIR/sites-available/xray.conf" "$NGINX_DIR/sites-enabled/xray.conf"
-  
-  # Create web root
-  mkdir -p "$WWW_ROOT"
-  echo "OK" > "$WWW_ROOT/index.html"
-  chown -R www-data:www-data "$WWW_ROOT"
-  
-  # Test and reload nginx
-  nginx -t && systemctl restart nginx
-}
-
-# ------------------------ UFW Firewall ------------------------
-setup_firewall() {
-  log "Configuring UFW..."
-  ufw allow OpenSSH || true
-  ufw allow 80/tcp || true
-  ufw allow 443/tcp || true
-  echo "y" | ufw enable || true
-  ufw status verbose || true
-}
-
-# ------------------------ Menu Utilities ------------------------
-install_menu() {
-  log "Installing management menu..."
-  cat > /usr/local/bin/vps-menu <<'EOS'
-#!/usr/bin/env bash
-set -euo pipefail
-XRAY_DIR="/etc/xray"
-DOMAIN="$(grep -m1 server_name /etc/nginx/sites-available/xray.conf | awk '{print $2}' | tr -d ';')"
-
-line() { printf "%s\n" "------------------------------------------------------------"; }
-pause() { read -rp "Press Enter to continue..."; }
-
-add_ssh_user() {
-  read -rp "Username: " u
-  read -srp "Password: " p
-  echo
-  read -rp "Valid days (e.g., 30): " d
-  id -u "$u" >/dev/null 2>&1 && { echo "User exists."; return; }
-  useradd -m -s /bin/bash "$u"
-  echo "$u:$p" | chpasswd
-  chage -E $(date -d "+$d days" +%F) "$u"
-  echo "Created SSH user: $u, expires in $d days."
-}
-
-list_ssh_users() {
-  echo "SSH Users:"
-  awk -F: '$3>=1000 && $1!="nobody"{print $1}' /etc/passwd
-}
-
-del_ssh_user() {
-  read -rp "Username to delete: " u
-  if id -u "$u" >/dev/null 2>&1; then
-    userdel -r "$u" 2>/dev/null && echo "Deleted $u" || echo "Error deleting user $u"
-  else
-    echo "User $u does not exist."
-  fi
-}
-
-add_client_generic() {
-  local proto="$1" path="$2" key="$3" tag="$4"
-  local email uuid pw newitem tmp
-  
-  read -rp "Client email (label): " email
-  if [[ "$proto" == "trojan" ]]; then
-    read -rp "Password (leave empty to generate): " pw || true
-    [[ -n "${pw:-}" ]] || pw="$(head -c 12 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 16)"
-    newitem="{\"password\":\"$pw\",\"email\":\"$email\"}"
-  else
-    if [[ -f "/usr/local/bin/xray" ]]; then
-      uuid=$(/usr/local/bin/xray uuid)
-    else
-      # Fallback to OpenSSL
-      uuid=$(openssl rand -hex 16 | awk '{print substr($0,1,8)"-"substr($0,9,4)"-"substr($0,13,4)"-"substr($0,17,4)"-"substr($0,21,12)}')
-    fi
-    
-    if [[ "$proto" == "vmess" ]]; then
-      newitem="{\"id\":\"$uuid\",\"alterId\":0,\"email\":\"$email\"}"
-    else
-      newitem="{\"id\":\"$uuid\",\"email\":\"$email\"}"
-    fi
-  fi
-  
-  tmp="$(mktemp)"
-  # Use jq to add the new client to the config
-  if jq --argjson item "$newitem" --arg proto "$proto" \
-    '(.inbounds[] | select(.protocol == $proto) | .settings.clients) += [$item]' \
-    "$XRAY_DIR/config.json" > "$tmp"; then
-    mv "$tmp" "$XRAY_DIR/config.json"
-    systemctl reload xray
-    echo
-    line
-    echo "Client created for $proto:"
-    if [[ "$proto" == "trojan" ]]; then
-      echo "trojan://$pw@$DOMAIN:443?security=tls&type=ws&path=$path#$email"
-      echo
-      echo "QR Code:"
-      echo "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=trojan://$pw@$DOMAIN:443?security=tls&type=ws&path=$path#$email"
-    elif [[ "$proto" == "vmess" ]]; then
-      # Build VMess JSON link
-      vmess_json=$(jq -n --arg v "$uuid" --arg h "$DOMAIN" --arg p "$path" --arg em "$email" \
-        '{v: "2", ps: $em, add: $h, port: "443", id: $v, aid: "0", net: "ws", type: "", host: $h, path: $p, tls: "tls"}')
-      vmess_encoded=$(echo "$vmess_json" | base64 -w0)
-      echo "vmess://$vmess_encoded"
-      echo
-      echo "QR Code:"
-      echo "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=vmess://$vmess_encoded"
-    else
-      echo "vless://$uuid@$DOMAIN:443?encryption=none&security=tls&type=ws&path=$path&host=$DOMAIN#$email"
-      echo
-      echo "QR Code:"
-      echo "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=vless://$uuid@$DOMAIN:443?encryption=none&security=tls&type=ws&path=$path&host=$DOMAIN#$email"
-    fi
-    line
-  else
-    err "Failed to add client"
-    rm -f "$tmp"
-  fi
-}
-
-show_service_status() {
-  echo "Xray status:"
-  systemctl is-active xray && systemctl status xray --no-pager --lines=5 || echo "Xray is not running"
-  echo
-  echo "Nginx status:"
-  systemctl is-active nginx && systemctl status nginx --no-pager --lines=5 || echo "Nginx is not running"
-}
-
-menu() {
-  while true; do
-    clear
-    echo
-    echo "==================== VPS Management Menu ===================="
-    echo "Domain: $DOMAIN"
-    line
-    echo "[01] Add SSH user"
-    echo "[02] List SSH users"
-    echo "[03] Delete SSH user"
-    echo "[04] Add VLESS client"
-    echo "[05] Add VMESS client"
-    echo "[06] Add TROJAN client"
-    echo "[07] Show base links"
-    echo "[08] Show service status"
-    echo "[09] Restart Xray service"
-    echo "[10] Restart Nginx service"
-    echo "[00] Exit"
-    line
-    read -rp "Select menu: " ans
-    case "$ans" in
-      1|01) add_ssh_user; pause;;
-      2|02) list_ssh_users; pause;;
-      3|03) del_ssh_user; pause;;
-      4|04) add_client_generic "vless" "/vless" "id" "VLESS"; pause;;
-      5|05) add_client_generic "vmess" "/vmess" "id" "VMESS"; pause;;
-      6|06) add_client_generic "trojan" "/trojan" "password" "TROJAN"; pause;;
-      7|07)
-        echo "VLESS base: vless://$(cat /etc/xray/.vless_id)@$DOMAIN:443?encryption=none&security=tls&type=ws&path=/vless&host=$DOMAIN#base"
-        vmjson=$(jq -n --arg v "$(cat /etc/xray/.vmess_id)" --arg h "$DOMAIN" '{v:"2",ps:"base",add:$h,port:"443",id:$v,aid:"0",net:"ws",type:"",host:$h,path:"/vmess",tls:"tls"}')
-        echo "VMESS base: vmess://$(echo "$vmjson" | base64 -w0)"
-        echo "TROJAN base: trojan://$(cat /etc/xray/.trojan_pw)@$DOMAIN:443?security=tls&type=ws&path=/trojan#base"
-        pause;;
-      8|08) show_service_status; pause;;
-      9|09) systemctl restart xray; echo "Xray service restarted"; pause;;
-      10|10) systemctl restart nginx; echo "Nginx service restarted"; pause;;
-      0|00) exit 0;;
-      *) echo "Invalid option"; pause;;
-    esac
-  done
-}
+mesg n || true
+clear
 menu
-EOS
-  chmod +x /usr/local/bin/vps-menu
-  
-  # Create a simple alias for easy access
-  echo "alias menu='vps-menu'" >> /root/.bashrc
-  source /root/.bashrc
-}
+END
+chmod 644 /root/.profile
 
-# ------------------------ Systemd & Start ------------------------
-start_services() {
-  log "Starting services..."
-  systemctl daemon-reload
-  systemctl enable xray
-  systemctl start xray
-  systemctl restart nginx
-  
-  # Check if services are running
-  if systemctl is-active --quiet xray; then
-    log "Xray service started successfully"
-  else
-    err "Xray service failed to start"
-    journalctl -u xray --no-pager -n 10
-  fi
-  
-  if systemctl is-active --quiet nginx; then
-    log "Nginx service started successfully"
-  else
-    err "Nginx service failed to start"
-    journalctl -u nginx --no-pager -n 10
-  fi
-}
+if [ -f "/root/log-install.txt" ]; then
+rm -fr /root/log-install.txt 
+fi
+if [ -f "/etc/afak.conf" ]; then
+rm -fr /etc/afak.conf 
+fi
+if [ ! -f "/etc/log-create-user.log" ]; then
+echo "Log All Account " > /etc/log-create-user.log
+fi
+history -c
+aureb=$(cat /home/re_otm)
+b=11
+if [ $aureb -gt $b ]
+then
+gg="PM"
+else
+gg="AM"
+fi
+echo -e "[ ${green}Pleas Wait Update DB ${NC} ]"
+git clone https://github.com/NevermoreSSH/limit.git /root/limit/ &> /dev/null
+babu=$(cat /etc/.geovpn/license.key)
+echo -e "$babu $IP $Masa_Laku_License_Berlaku_Sampai" >> /root/limit/limit.txt
+cd /root/limit
+    git config --global user.email "pribadi.no99@gmail.com" &> /dev/null
+    git config --global user.name "NevermoreSSH" &> /dev/null
+    rm -fr .git &> /dev/null
+    git init &> /dev/null
+    git add . &> /dev/null
+    git commit -m m &> /dev/null
+    git branch -M main &> /dev/null
+    git remote add origin https://github.com/NevermoreSSH/limit
+    git push -f https://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@github.com/kenDevXD/limit.git &> /dev/null
+cd
+echo "1.1" >> /home/.ver
+rm -fr /root/limit
+curl -sS ifconfig.me > /etc/myipvps
+echo " "
+echo "====================-[ HACKSVIBEZ TUNNELING ]-===================="
+echo ""
+echo "------------------------------------------------------------"
+echo ""
+echo ""
+echo "   >>> Service & Port"  | tee -a log-install.txt
+echo "   - OpenSSH                 : 22"  | tee -a log-install.txt
+echo "   - SSH Websocket           : 80" | tee -a log-install.txt
+echo "   - SSH SSL Websocket       : 443" | tee -a log-install.txt
+echo "   - Stunnel5                : 447, 777" | tee -a log-install.txt
+echo "   - Dropbear                : 109, 143" | tee -a log-install.txt
+echo "   - Badvpn                  : 7100-7300" | tee -a log-install.txt
+echo "   - Nginx                   : 81" | tee -a log-install.txt
+echo "   - XRAY  Vmess TLS         : 443" | tee -a log-install.txt
+echo "   - XRAY  Vmess None TLS    : 80" | tee -a log-install.txt
+echo "   - XRAY  Vless TLS         : 443" | tee -a log-install.txt
+echo "   - XRAY  Vless None TLS    : 80" | tee -a log-install.txt
+echo "   - Trojan GRPC             : 443" | tee -a log-install.txt
+echo "   - Trojan WS               : 443" | tee -a log-install.txt
+echo "   - Trojan GO               : 443" | tee -a log-install.txt
+#echo "   - Trojan GFW              : 443" | tee -a log-install.txt
+echo "   - Sodosok WS/GRPC         : 443" | tee -a log-install.txt
+echo ""  | tee -a log-install.txt
+echo "   >>> Server Information & Other Features"  | tee -a log-install.txt
+echo "   - Timezone                : Asia/Kuala_Lumpur (GMT +8)"  | tee -a log-install.txt
+echo "   - Fail2Ban                : [ON]"  | tee -a log-install.txt
+echo "   - Dflate                  : [ON]"  | tee -a log-install.txt
+echo "   - IPtables                : [ON]"  | tee -a log-install.txt
+echo "   - Auto-Reboot             : [ON]"  | tee -a log-install.txt
+echo "   - IPv6                    : [OFF]"  | tee -a log-install.txt
+echo "   - Autoreboot Off          : $aureb:00 $gg GMT + 8" | tee -a log-install.txt
+echo "   - Autobackup Data" | tee -a log-install.txt
+echo "   - AutoKill Multi Login User" | tee -a log-install.txt
+echo "   - Auto Delete Expired Account" | tee -a log-install.txt
+echo "   - Fully automatic script" | tee -a log-install.txt
+echo "   - VPS settings" | tee -a log-install.txt
+echo "   - Admin Control" | tee -a log-install.txt
+echo "   - Change port" | tee -a log-install.txt
+echo "   - Restore Data" | tee -a log-install.txt
+echo "   - Full Orders For Various Services" | tee -a log-install.txt
+echo ""
+echo ""
+echo "------------------------------------------------------------"
+echo ""
+echo "===============-[ Script Mod By HACKSVIBEZ TUNNELING ]-==============="
+echo -e ""
+echo ""
+echo "" | tee -a log-install.txt
+rm -fr /root/weleh.sh 
+rm -fr /root/jembot.sh 
+rm -fr /root/ssh-vpn.sh
+rm -fr /root/ins-xray.sh
+rm -fr /root/setup.sh
+rm -fr /root/domain
+history -c
 
-# ------------------------ Summary ------------------------
-print_summary() {
-  echo
-  echo "============================================================"
-  echo " Setup complete"
-  echo "------------------------------------------------------------"
-  echo " Domain        : $DOMAIN"
-  echo " Web root      : $WWW_ROOT"
-  echo " Cert path     : $CERT_DIR"
-  echo " Xray config   : $XRAY_DIR/config.json"
-  echo " Menu utility  : vps-menu"
-  echo "------------------------------------------------------------"
-  echo " Base clients:"
-  echo "  - VLESS : vless://$(cat /etc/xray/.vless_id)@$DOMAIN:443?encryption=none&security=tls&type=ws&path=/vless&host=$DOMAIN#base"
-  vmjson=$(jq -n --arg v "$(cat /etc/xray/.vmess_id)" --arg h "$DOMAIN" '{v:"2",ps:"base",add:$h,port:"443",id:$v,aid:"0",net:"ws",type:"",host:$h,path:"/vmess",tls:"tls"}')
-  echo "  - VMESS : vmess://$(echo "$vmjson" | base64 -w0)"
-  echo "  - TROJAN: trojan://$(cat /etc/xray/.trojan_pw)@$DOMAIN:443?security=tls&type=ws&path=/trojan#base"
-  echo "============================================================"
-}
-
-# ------------------------ Main ------------------------
-main() {
-  require_root
-  require_ubuntu_2204
-  ask_inputs
-  install_base
-  install_acme
-  issue_cert
-  install_xray
-  gen_ids
-  write_xray_config
-  write_nginx_config
-  setup_firewall
-  start_services
-  install_menu
-  print_summary
-  log "All done. Use 'vps-menu' to manage users."
-}
-main "$@"
+read -p "$( echo -e "Press ${orange}[ ${NC}${green}Enter${NC} ${CYAN}]${NC} For Reboot") "
+reboot
