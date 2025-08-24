@@ -1,412 +1,419 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Auto VPS Setup for Ubuntu 22.04
+# Features: Xray-core (VLESS/VMess/Trojan over WS+TLS), Nginx reverse proxy, ACME TLS,
+# simple SSH account manager, and menu utility.
+# Tested on: Ubuntu 22.04 (Jammy)
+# Run as root:  bash auto-vps-setup-ubuntu2204.sh
+set -euo pipefail
 
-# SakuraV3 AutoScript for Ubuntu 22.04
-# By Heru Tambunan
+# ------------------------ Helper Functions ------------------------
+log() { echo -e "\e[1;32m[+] $*\e[0m"; }
+warn() { echo -e "\e[1;33m[!] $*\e[0m"; }
+err() { echo -e "\e[1;31m[x] $*\e[0m" >&2; }
+die() { err "$*"; exit 1; }
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# Script information
-VERSION="Limited Edition 2023"
-LICENSE_KEY="288KN-FFKG3-YWMV4-J3DY2-PFSHF"
-USERNAME="ANTONY"
-
-# System information
-get_system_info() {
-    SERVER_UPTIME=$(uptime | awk -F'( |,|:)+' '{if ($7=="min") printf "%s hours, %s minutes", 0, $6; else printf "%s hours, %s minutes", $6, $7}')
-    CURRENT_TIME=$(date +"%d-%m-%Y | %I:%M:%S %p")
-    OS_INFO=$(lsb_release -ds)
-    ARCH=$(uname -m)
-    CURRENT_DOMAIN=$(hostname)
-    TOTAL_RAM=$(free -m | awk '/Mem:/ {printf "%.0f MB", $2}')
-    USED_RAM=$(free -m | awk '/Mem:/ {printf "%.0f MB", $3}')
-    FREE_RAM=$(free -m | awk '/Mem:/ {printf "%.0f MB", $4}')
-    CPU_USAGE=$(top -bn1 | grep "Cpu(s)" | sed "s/.*, *\([0-9.]*\)%* id.*/\1/" | awk '{printf "%.0f %%", 100 - $1}')
+require_root() {
+  [[ $EUID -eq 0 ]] || die "Run as root: sudo -i && bash $0"
 }
 
-# Display header information
-display_header() {
-    clear
-    echo -e "${GREEN}# INFORMATION VPS${NC}"
-    echo "Server Uptime    = $SERVER_UPTIME"
-    echo "Current Time    = $CURRENT_TIME"
-    echo "Operating System    = $OS_INFO ( $ARCH )"
-    echo "Current Domain    = $CURRENT_DOMAIN"
-    echo "MS Domain    ="
-    echo "Total Ram    = $TOTAL_RAM"
-    echo "Total Used Ram    = $USED_RAM"
-    echo "Total Free Ram    = $FREE_RAM"
-    echo "CPU Usage    = $CPU_USAGE"
-    echo "Time Reboot VPS    = 00:00 ( Midnight )"
-    echo ""
-    echo -e "${GREEN}# SAKURAV3_TUNELING${NC}"
-    echo "Use Core    : Xray-Core 2023"
-    echo "IP-VPS    : $(curl -s ifconfig.me)"
-    echo ""
-    echo -e "${YELLOW}TERIMA KASIH SUDAH MENGGUNAKAN AUTOSCRIPT SAKURAV3${NC}"
-    echo ""
-    echo "| SSH   | VMESS | VLESS | TROJAN |"
-    echo "| 5    | 0     | 1     | 1      |"
-    echo ""
-    echo "SSH : ON  MONITORING : ON  XRAY : ON  TROJAN : ON"
-    echo "STUNNEL : ON  DROPPBEAR : ON  SSH-MS : ON"
-    echo ""
+require_ubuntu_2204() {
+  . /etc/os-release
+  if [[ "${ID:-}" != "ubuntu" || "${VERSION_ID:-}" != "22.04" ]]; then
+    warn "This script is intended for Ubuntu 22.04. Detected: ${PRETTY_NAME:-unknown}."
+    read -rp "Continue anyway? [y/N]: " ans
+    [[ "${ans,,}" == "y" ]] || die "Aborted."
+  fi
 }
 
-# Display menu options
-display_menu() {
-    echo "[01] SSH [Menu]          [06] TRIAL [Menu]"
-    echo "[02] VMESS [Menu]        [07] BACKUP"
-    echo "[03] VLESS [Menu]        [08] ADD-HOST DOMAIN"
-    echo "[04] TROJAN [Menu]       [09] CHECK RUNNING"
-    echo "[05] SETTING [Menu]      [10] SETUP REBOOT"
-    echo ""
-    echo -e "${BLUE}# HERU TAMBANAN${NC}"
-    echo ""
-    echo "[11] DOMAIN FREE         [15] UNLOCK"
-    echo "[12] INSTAL UDP          [16] RENEW CERT"
-    echo "[13] MS DOMAIN           [17] CLEAR SAMPAH"
-    echo "[14] LOCK"
-    echo ""
-    echo "Wadah Kasih, ( MONITORING BANDWIDTH )"
-    echo "Wadah Member1, TODAY - 37.73 G"
-    echo "Niat Di Hati, YESTERDAY - 166.79 G"
-    echo "Nawattu Free, MONTH -"
-    echo ""
-    echo "Autoscript By : Sakurav3"
-    echo "Version : $VERSION"
-    echo "License Key : $LICENSE_KEY"
-    echo "Day Expired : Lifetime"
-    echo "Username : $USERNAME"
-    echo ""
+cmd_exist() { command -v "$1" >/dev/null 2>&1; }
+
+# ------------------------ Variables ------------------------
+XRAY_VER="latest"
+XRAY_DIR="/etc/xray"
+NGINX_DIR="/etc/nginx"
+CERT_DIR="/etc/ssl/xray"
+ACME_HOME="/root/.acme.sh"
+DOMAIN="${DOMAIN:-}"
+EMAIL="${EMAIL:-}"
+WWW_ROOT="/var/www/html"
+IPV4="$(curl -4s https://api.ipify.org || true)"
+
+# ------------------------ Interactive Input ------------------------
+ask_inputs() {
+  echo
+  log "Basic configuration"
+  if [[ -z "$DOMAIN" ]]; then
+    read -rp "Enter your domain pointing to this server (A record): " DOMAIN
+  fi
+  if [[ -z "$EMAIL" ]]; then
+    read -rp "Enter your email for Let's Encrypt notices (optional): " EMAIL || true
+  fi
+  [[ -n "$DOMAIN" ]] || die "Domain is required for TLS (e.g., example.com)."
+  log "Using domain: $DOMAIN"
+  if [[ -n "$IPV4" ]]; then
+    log "Detected public IPv4: $IPV4"
+  fi
 }
 
-# SSH Menu
-ssh_menu() {
-    echo -e "${GREEN}SSH Menu Selected${NC}"
-    echo "1. Create SSH Account"
-    echo "2. Delete SSH Account"
-    echo "3. Extend SSH Account"
-    echo "4. List SSH Accounts"
-    echo "5. Back to Main Menu"
-    read -p "Select option: " ssh_option
-    
-    case $ssh_option in
-        1) create_ssh ;;
-        2) delete_ssh ;;
-        3) extend_ssh ;;
-        4) list_ssh ;;
-        5) return ;;
-        *) echo -e "${RED}Invalid option${NC}" ;;
-    esac
+# ------------------------ Install Base Packages ------------------------
+install_base() {
+  log "Updating and installing packages..."
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -y
+  apt-get upgrade -y
+  apt-get install -y --no-install-recommends \
+    curl wget ca-certificates gnupg2 lsb-release apt-transport-https \
+    unzip jq socat cron nano ufw nginx
+  systemctl enable --now cron
+  systemctl enable --now nginx
 }
 
-# VMESS Menu
-vmess_menu() {
-    echo -e "${GREEN}VMESS Menu Selected${NC}"
-    echo "1. Create VMESS Account"
-    echo "2. Delete VMESS Account"
-    echo "3. Extend VMESS Account"
-    echo "4. List VMESS Accounts"
-    echo "5. Back to Main Menu"
-    read -p "Select option: " vmess_option
-    
-    case $vmess_option in
-        1) create_vmess ;;
-        2) delete_vmess ;;
-        3) extend_vmess ;;
-        4) list_vmess ;;
-        5) return ;;
-        *) echo -e "${RED}Invalid option${NC}" ;;
-    esac
+# ------------------------ ACME / TLS ------------------------
+install_acme() {
+  if [[ ! -d "$ACME_HOME" ]]; then
+    log "Installing acme.sh..."
+    curl -s https://get.acme.sh | sh -s email="${EMAIL:-admin@$DOMAIN}"
+  fi
+  # Ensure socat exists (for standalone HTTP)
+  "$ACME_HOME"/acme.sh --upgrade --auto-upgrade
 }
 
-# VLESS Menu
-vless_menu() {
-    echo -e "${GREEN}VLESS Menu Selected${NC}"
-    echo "1. Create VLESS Account"
-    echo "2. Delete VLESS Account"
-    echo "3. Extend VLESS Account"
-    echo "4. List VLESS Accounts"
-    echo "5. Back to Main Menu"
-    read -p "Select option: " vless_option
-    
-    case $vless_option in
-        1) create_vless ;;
-        2) delete_vless ;;
-        3) extend_vless ;;
-        4) list_vless ;;
-        5) return ;;
-        *) echo -e "${RED}Invalid option${NC}" ;;
-    esac
+issue_cert() {
+  mkdir -p "$CERT_DIR"
+  log "Stopping Nginx temporarily to issue a certificate (standalone mode)..."
+  systemctl stop nginx || true
+  "$ACME_HOME"/acme.sh --issue --standalone -d "$DOMAIN" || {
+    warn "Standalone issuance failed. Trying webroot mode via Nginx."
+    # configure temporary webroot
+    systemctl start nginx
+    "$ACME_HOME"/acme.sh --issue -d "$DOMAIN" -w "$WWW_ROOT" || die "Certificate issuance failed."
+  }
+  "$ACME_HOME"/acme.sh --install-cert -d "$DOMAIN" \
+    --fullchain-file "$CERT_DIR/fullchain.pem" \
+    --key-file "$CERT_DIR/privkey.pem" \
+    --reloadcmd "systemctl reload nginx || true; systemctl reload xray || true"
+  chmod 600 "$CERT_DIR/privkey.pem"
+  log "TLS certificate installed at $CERT_DIR."
 }
 
-# Trojan Menu
-trojan_menu() {
-    echo -e "${GREEN}Trojan Menu Selected${NC}"
-    echo "1. Create Trojan Account"
-    echo "2. Delete Trojan Account"
-    echo "3. Extend Trojan Account"
-    echo "4. List Trojan Accounts"
-    echo "5. Back to Main Menu"
-    read -p "Select option: " trojan_option
-    
-    case $trojan_option in
-        1) create_trojan ;;
-        2) delete_trojan ;;
-        3) extend_trojan ;;
-        4) list_trojan ;;
-        5) return ;;
-        *) echo -e "${RED}Invalid option${NC}" ;;
-    esac
+# ------------------------ Xray-core ------------------------
+install_xray() {
+  log "Installing Xray-core (${XRAY_VER})..."
+  bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+  systemctl stop xray || true
 }
 
-# Setting Menu
-setting_menu() {
-    echo -e "${GREEN}Setting Menu Selected${NC}"
-    echo "1. Change SSH Port"
-    echo "2. Change V2Ray Port"
-    echo "3. Change Trojan Port"
-    echo "4. Speedtest Server"
-    echo "5. Back to Main Menu"
-    read -p "Select option: " setting_option
-    
-    case $setting_option in
-        1) change_ssh_port ;;
-        2) change_v2ray_port ;;
-        3) change_trojan_port ;;
-        4) speedtest ;;
-        5) return ;;
-        *) echo -e "${RED}Invalid option${NC}" ;;
-    esac
+# ------------------------ Config Generation ------------------------
+gen_ids() {
+  VLESS_ID="$(xray uuid)"
+  VMESS_ID="$(xray uuid)"
+  TROJAN_PSW="$(head -c 12 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 16)"
+  echo "$VLESS_ID" > /etc/xray/.vless_id
+  echo "$VMESS_ID" > /etc/xray/.vmess_id
+  echo "$TROJAN_PSW" > /etc/xray/.trojan_pw
 }
 
-# Trial Menu
-trial_menu() {
-    echo -e "${GREEN}Trial Menu Selected${NC}"
-    echo "1. Create Trial SSH Account"
-    echo "2. Create Trial VMESS Account"
-    echo "3. Create Trial VLESS Account"
-    echo "4. Create Trial Trojan Account"
-    echo "5. Back to Main Menu"
-    read -p "Select option: " trial_option
-    
-    case $trial_option in
-        1) create_trial_ssh ;;
-        2) create_trial_vmess ;;
-        3) create_trial_vless ;;
-        4) create_trial_trojan ;;
-        5) return ;;
-        *) echo -e "${RED}Invalid option${NC}" ;;
-    esac
+write_xray_config() {
+  log "Writing Xray configuration..."
+  cat > "$XRAY_DIR/config.json" <<EOF
+{
+  "log": { "loglevel": "warning" },
+  "inbounds": [
+    {
+      "port": 10001,
+      "protocol": "vless",
+      "settings": {
+        "clients": [ { "id": "$(cat /etc/xray/.vless_id)", "email": "vless@${DOMAIN}" } ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "none",
+        "wsSettings": { "path": "/vless" }
+      }
+    },
+    {
+      "port": 10002,
+      "protocol": "vmess",
+      "settings": {
+        "clients": [ { "id": "$(cat /etc/xray/.vmess_id)", "alterId": 0, "email": "vmess@${DOMAIN}" } ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "none",
+        "wsSettings": { "path": "/vmess" }
+      }
+    },
+    {
+      "port": 10003,
+      "protocol": "trojan",
+      "settings": {
+        "clients": [ { "password": "$(cat /etc/xray/.trojan_pw)", "email": "trojan@${DOMAIN}" } ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "none",
+        "wsSettings": { "path": "/trojan" }
+      }
+    }
+  ],
+  "outbounds": [ { "protocol": "freedom" }, { "protocol": "blackhole", "tag": "blocked" } ]
+}
+EOF
 }
 
-# Backup function
-backup_menu() {
-    echo -e "${GREEN}Backup Menu Selected${NC}"
-    echo "1. Backup User Data"
-    echo "2. Restore User Data"
-    echo "3. Back to Main Menu"
-    read -p "Select option: " backup_option
-    
-    case $backup_option in
-        1) backup_data ;;
-        2) restore_data ;;
-        3) return ;;
-        *) echo -e "${RED}Invalid option${NC}" ;;
-    esac
+write_nginx_config() {
+  log "Configuring Nginx reverse proxy..."
+  cat > "$NGINX_DIR/sites-available/xray.conf" <<'EOF'
+server {
+    listen 80;
+    listen [::]:80;
+    server_name DOMAIN_PLACEHOLDER;
+    root /var/www/html;
+    index index.html;
+    location / {
+        try_files $uri $uri/ =404;
+    }
+    location /vless {
+        proxy_redirect off;
+        proxy_pass http://127.0.0.1:10001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+    location /vmess {
+        proxy_redirect off;
+        proxy_pass http://127.0.0.1:10002;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+    location /trojan {
+        proxy_redirect off;
+        proxy_pass http://127.0.0.1:10003;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+}
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name DOMAIN_PLACEHOLDER;
+    ssl_certificate /etc/ssl/xray/fullchain.pem;
+    ssl_certificate_key /etc/ssl/xray/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    root /var/www/html;
+    index index.html;
+    location / { try_files $uri $uri/ =404; }
+    location /vless {
+        proxy_redirect off;
+        proxy_pass http://127.0.0.1:10001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+    location /vmess {
+        proxy_redirect off;
+        proxy_pass http://127.0.0.1:10002;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+    location /trojan {
+        proxy_redirect off;
+        proxy_pass http://127.0.0.1:10003;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+}
+EOF
+  sed -i "s/DOMAIN_PLACEHOLDER/$DOMAIN/g" "$NGINX_DIR/sites-available/xray.conf"
+  rm -f "$NGINX_DIR/sites-enabled/default" || true
+  ln -sf "$NGINX_DIR/sites-available/xray.conf" "$NGINX_DIR/sites-enabled/xray.conf"
+  mkdir -p "$WWW_ROOT"
+  echo "OK" > "$WWW_ROOT/index.html"
+  nginx -t
+  systemctl restart nginx
 }
 
-# Add Host Domain
-add_host_domain() {
-    echo -e "${GREEN}Add Host Domain Selected${NC}"
-    read -p "Enter domain name: " domain_name
-    if [ -z "$domain_name" ]; then
-        echo -e "${RED}Domain name cannot be empty!${NC}"
-        return
-    fi
-    
-    # Add domain to hosts file
-    echo "127.0.0.1 $domain_name" >> /etc/hosts
-    echo -e "${GREEN}Domain $domain_name added successfully!${NC}"
+# ------------------------ UFW Firewall ------------------------
+setup_firewall() {
+  log "Configuring UFW..."
+  ufw allow OpenSSH || true
+  ufw allow 80/tcp || true
+  ufw allow 443/tcp || true
+  echo "y" | ufw enable || true
+  ufw status verbose || true
 }
 
-# Check running services
-check_running() {
-    echo -e "${GREEN}Checking running services...${NC}"
-    echo "SSH Service: $(systemctl is-active ssh)"
-    echo "V2Ray Service: $(systemctl is-active v2ray)"
-    echo "Trojan Service: $(systemctl is-active trojan)"
-    echo "Stunnel Service: $(systemctl is-active stunnel4)"
-    echo "Dropbear Service: $(systemctl is-active dropbear)"
+# ------------------------ Menu Utilities ------------------------
+install_menu() {
+  log "Installing management menu..."
+  cat > /usr/local/bin/vps-menu <<'EOS'
+#!/usr/bin/env bash
+set -euo pipefail
+XRAY_DIR="/etc/xray"
+DOMAIN="$(grep -m1 server_name /etc/nginx/sites-available/xray.conf | awk '{print $2}' | tr -d ';')"
+
+line() { printf "%s\n" "------------------------------------------------------------"; }
+pause() { read -rp "Press Enter to continue..."; }
+
+add_ssh_user() {
+  read -rp "Username: " u
+  read -rp "Password: " p
+  read -rp "Valid days (e.g., 30): " d
+  id -u "$u" >/dev/null 2>&1 && { echo "User exists."; return; }
+  useradd -m -s /bin/bash "$u"
+  echo "$u:$p" | chpasswd
+  chage -E $(date -d "+$d days" +%F) "$u"
+  echo "Created SSH user: $u, expires in $d days."
 }
 
-# Setup reboot schedule
-setup_reboot() {
-    echo -e "${GREEN}Setup Reboot Selected${NC}"
-    echo "1. Reboot daily at midnight"
-    echo "2. Reboot weekly"
-    echo "3. Custom reboot schedule"
-    echo "4. Back to Main Menu"
-    read -p "Select option: " reboot_option
-    
-    case $reboot_option in
-        1) echo "0 0 * * * root /sbin/reboot" > /etc/cron.d/reboot_schedule
-           echo -e "${GREEN}Daily reboot at midnight scheduled!${NC}" ;;
-        # Other options would be implemented similarly
-        4) return ;;
-        *) echo -e "${RED}Invalid option${NC}" ;;
-    esac
+list_ssh_users() {
+  awk -F: '$3>=1000 && $1!="nobody"{print $1}' /etc/passwd
 }
 
-# Domain Free
-domain_free() {
-    echo -e "${GREEN}Domain Free Selected${NC}"
-    echo "Free domain providers:"
-    echo "1. https://freedns.afraid.org"
-    echo "2. https://www.duckdns.org"
-    echo "3. https://www.noip.com"
-    echo "Please visit these sites to get a free domain."
+del_ssh_user() {
+  read -rp "Username to delete: " u
+  userdel -r "$u" && echo "Deleted $u"
 }
 
-# Install UDP
-install_udp() {
-    echo -e "${GREEN}Installing UDP Custom...${NC}"
-    # Download and install UDP Custom
-    wget -O /usr/bin/udp-custom https://github.com/xxooxxooxx/udp-custom/raw/main/udp-custom
-    chmod +x /usr/bin/udp-custom
-    echo -e "${GREEN}UDP Custom installed successfully!${NC}"
-}
-
-# MS Domain
-ms_domain() {
-    echo -e "${GREEN}MS Domain Selected${NC}"
-    read -p "Enter Microsoft Domain: " ms_domain
-    echo "Microsoft Domain $ms_domain configured!"
-}
-
-# Lock function
-lock_function() {
-    echo -e "${GREEN}Lock Selected${NC}"
-    echo "Locking system configuration..."
-    chattr +i /etc/passwd
-    chattr +i /etc/shadow
-    chattr +i /etc/group
-    chattr +i /etc/gshadow
-    echo -e "${GREEN}System configuration locked!${NC}"
-}
-
-# Unlock function
-unlock_function() {
-    echo -e "${GREEN}Unlock Selected${NC}"
-    echo "Unlocking system configuration..."
-    chattr -i /etc/passwd
-    chattr -i /etc/shadow
-    chattr -i /etc/group
-    chattr -i /etc/gshadow
-    echo -e "${GREEN}System configuration unlocked!${NC}"
-}
-
-# Renew Certificate
-renew_cert() {
-    echo -e "${GREEN}Renewing SSL Certificate...${NC}"
-    # Check if certbot is installed
-    if command -v certbot >/dev/null 2>&1; then
-        certbot renew
-        echo -e "${GREEN}SSL Certificate renewed!${NC}"
+add_client_generic() {
+  local proto="$1" path="$2" key="$3" tag="$4"
+  local email idfield pwfield newitem
+  read -rp "Client email (label): " email
+  if [[ "$proto" == "trojan" ]]; then
+    read -rp "Password (leave empty to generate): " pw || true
+    [[ -n "${pw:-}" ]] || pw="$(head -c 12 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 16)"
+    newitem="{\"password\":\"$pw\",\"email\":\"$email\"}"
+  else
+    local uuid
+    uuid=$(xray uuid)
+    if [[ "$proto" == "vmess" ]]; then
+      newitem="{\"id\":\"$uuid\",\"alterId\":0,\"email\":\"$email\"}"
     else
-        echo -e "${RED}Certbot is not installed!${NC}"
-        echo "Install certbot with: apt install certbot"
+      newitem="{\"id\":\"$uuid\",\"email\":\"$email\"}"
     fi
+  fi
+  tmp="$(mktemp)"
+  jq --argjson item "$newitem" '.inbounds[] | select(.protocol=="'"$proto"'") | .settings.clients += [ '"$newitem"' ]' "$XRAY_DIR/config.json" >/dev/null 2>&1 || true
+  # safer: rewrite file via jq
+  jq --argjson item "$newitem" '
+    (.inbounds[] | select(.protocol=="'"$proto"'") | .settings.clients) += [ $item ]
+  ' "$XRAY_DIR/config.json" > "$tmp"
+  mv "$tmp" "$XRAY_DIR/config.json"
+  systemctl reload xray
+  echo
+  line
+  echo "Client created for $proto:"
+  if [[ "$proto" == "trojan" ]]; then
+    echo "trojan://$pw@$DOMAIN:443?security=tls&type=ws&path=$path#$email"
+  elif [[ "$proto" == "vmess" ]]; then
+    # Build VMess JSON link
+    uuid=$(jq -r '.inbounds[] | select(.protocol=="vmess") | .settings.clients[-1].id' "$XRAY_DIR/config.json")
+    vmess_json=$(jq -n --arg v "$uuid" --arg h "$DOMAIN" --arg p "$path" '{v: "2", ps: $h, add: $h, port: "443", id: $v, aid: "0", net: "ws", type: "", host: $h, path: $p, tls: "tls"}')
+    echo "vmess://$(echo "$vmess_json" | base64 -w0)"
+  else
+    uuid=$(jq -r '.inbounds[] | select(.protocol=="vless") | .settings.clients[-1].id' "$XRAY_DIR/config.json")
+    echo "vless://$uuid@$DOMAIN:443?encryption=none&security=tls&type=ws&path=$path&host=$DOMAIN#$email"
+  fi
+  line
 }
 
-# Clear junk files
-clear_junk() {
-    echo -e "${GREEN}Clearing junk files...${NC}"
-    apt autoremove -y
-    apt clean
-    rm -rf /tmp/*
-    rm -rf /var/tmp/*
-    echo -e "${GREEN}Junk files cleared!${NC}"
+menu() {
+  clear
+  echo
+  echo "==================== VPS Management Menu ===================="
+  echo "Domain: $DOMAIN"
+  line
+  echo "[01] Add SSH user"
+  echo "[02] List SSH users"
+  echo "[03] Delete SSH user"
+  echo "[04] Add VLESS client"
+  echo "[05] Add VMESS client"
+  echo "[06] Add TROJAN client"
+  echo "[07] Show base links"
+  echo "[08] Show service status"
+  echo "[00] Exit"
+  line
+  read -rp "Select menu: " ans
+  case "$ans" in
+    1|01) add_ssh_user; pause;;
+    2|02) list_ssh_users; pause;;
+    3|03) del_ssh_user; pause;;
+    4|04) add_client_generic "vless" "/vless" "id" "VLESS"; pause;;
+    5|05) add_client_generic "vmess" "/vmess" "id" "VMESS"; pause;;
+    6|06) add_client_generic "trojan" "/trojan" "password" "TROJAN"; pause;;
+    7|07)
+      echo "VLESS base: vless://$(cat /etc/xray/.vless_id)@$DOMAIN:443?encryption=none&security=tls&type=ws&path=/vless&host=$DOMAIN#base"
+      vmjson=$(jq -n --arg v "$(cat /etc/xray/.vmess_id)" --arg h "$DOMAIN" '{v:"2",ps:$h,add:$h,port:"443",id:$v,aid:"0",net:"ws",type:"",host:$h,path:"/vmess",tls:"tls"}')
+      echo "VMESS base: vmess://$(echo "$vmjson" | base64 -w0)"
+      echo "TROJAN base: trojan://$(cat /etc/xray/.trojan_pw)@$DOMAIN:443?security=tls&type=ws&path=/trojan#base"
+      pause;;
+    8|08) systemctl status xray --no-pager; systemctl status nginx --no-pager; pause;;
+    0|00) exit 0;;
+    *) echo "Invalid option"; pause;;
+  esac
+  menu
+}
+menu
+EOS
+  chmod +x /usr/local/bin/vps-menu
 }
 
-# Placeholder functions for various operations
-create_ssh() { echo -e "${GREEN}SSH Account created!${NC}"; }
-delete_ssh() { echo -e "${RED}SSH Account deleted!${NC}"; }
-extend_ssh() { echo -e "${YELLOW}SSH Account extended!${NC}"; }
-list_ssh() { echo -e "${BLUE}Listing SSH Accounts...${NC}"; }
-
-create_vmess() { echo -e "${GREEN}VMESS Account created!${NC}"; }
-delete_vmess() { echo -e "${RED}VMESS Account deleted!${NC}"; }
-extend_vmess() { echo -e "${YELLOW}VMESS Account extended!${NC}"; }
-list_vmess() { echo -e "${BLUE}Listing VMESS Accounts...${NC}"; }
-
-create_vless() { echo -e "${GREEN}VLESS Account created!${NC}"; }
-delete_vless() { echo -e "${RED}VLESS Account deleted!${NC}"; }
-extend_vless() { echo -e "${YELLOW}VLESS Account extended!${NC}"; }
-list_vless() { echo -e "${BLUE}Listing VLESS Accounts...${NC}"; }
-
-create_trojan() { echo -e "${GREEN}Trojan Account created!${NC}"; }
-delete_trojan() { echo -e "${RED}Trojan Account deleted!${NC}"; }
-extend_trojan() { echo -e "${YELLOW}Trojan Account extended!${NC}"; }
-list_trojan() { echo -e "${BLUE}Listing Trojan Accounts...${NC}"; }
-
-change_ssh_port() { 
-    read -p "Enter new SSH port: " new_port
-    sed -i "s/^#Port.*/Port $new_port/" /etc/ssh/sshd_config
-    sed -i "s/^Port.*/Port $new_port/" /etc/ssh/sshd_config
-    systemctl restart ssh
-    echo -e "${GREEN}SSH port changed to $new_port!${NC}"
+# ------------------------ Systemd & Start ------------------------
+start_services() {
+  log "Starting services..."
+  systemctl daemon-reload
+  systemctl enable --now xray
+  systemctl restart nginx
 }
 
-change_v2ray_port() { echo -e "${GREEN}V2Ray port changed!${NC}"; }
-change_trojan_port() { echo -e "${GREEN}Trojan port changed!${NC}"; }
-speedtest() { 
-    echo -e "${GREEN}Running speedtest...${NC}"; 
-    curl -s https://raw.githubusercontent.com/sivel/speedtest-cli/master/speedtest.py | python3 -
+# ------------------------ Summary ------------------------
+print_summary() {
+  echo
+  echo "============================================================"
+  echo " Setup complete"
+  echo "------------------------------------------------------------"
+  echo " Domain        : $DOMAIN"
+  echo " Web root      : $WWW_ROOT"
+  echo " Cert path     : $CERT_DIR"
+  echo " Xray config   : $XRAY_DIR/config.json"
+  echo " Menu utility  : vps-menu"
+  echo "------------------------------------------------------------"
+  echo " Base clients:"
+  echo "  - VLESS : vless://$(cat /etc/xray/.vless_id)@$DOMAIN:443?encryption=none&security=tls&type=ws&path=/vless&host=$DOMAIN#base"
+  vmjson=$(jq -n --arg v "$(cat /etc/xray/.vmess_id)" --arg h "$DOMAIN" '{v:"2",ps:$h,add:$h,port:"443",id:$v,aid:"0",net:"ws",type:"",host:$h,path:"/vmess",tls:"tls"}')
+  echo "  - VMESS : vmess://$(echo "$vmjson" | base64 -w0)"
+  echo "  - TROJAN: trojan://$(cat /etc/xray/.trojan_pw)@$DOMAIN:443?security=tls&type=ws&path=/trojan#base"
+  echo "============================================================"
 }
 
-create_trial_ssh() { echo -e "${GREEN}Trial SSH Account created!${NC}"; }
-create_trial_vmess() { echo -e "${GREEN}Trial VMESS Account created!${NC}"; }
-create_trial_vless() { echo -e "${GREEN}Trial VLESS Account created!${NC}"; }
-create_trial_trojan() { echo -e "${GREEN}Trial Trojan Account created!${NC}"; }
-
-backup_data() { echo -e "${GREEN}User data backed up!${NC}"; }
-restore_data() { echo -e "${GREEN}User data restored!${NC}"; }
-
-# Main script execution
-while true; do
-    get_system_info
-    display_header
-    display_menu
-    
-    read -p "Select menu : " menu_option
-    
-    case $menu_option in
-        1) ssh_menu ;;
-        2) vmess_menu ;;
-        3) vless_menu ;;
-        4) trojan_menu ;;
-        5) setting_menu ;;
-        6) trial_menu ;;
-        7) backup_menu ;;
-        8) add_host_domain ;;
-        9) check_running ;;
-        10) setup_reboot ;;
-        11) domain_free ;;
-        12) install_udp ;;
-        13) ms_domain ;;
-        14) lock_function ;;
-        15) unlock_function ;;
-        16) renew_cert ;;
-        17) clear_junk ;;
-        exit|quit) echo -e "${RED}Exiting...${NC}"; exit 0 ;;
-        *) echo -e "${RED}Invalid option! Please try again.${NC}"; sleep 2 ;;
-    esac
-    
-    read -p "Press Enter to continue..."
-done
+# ------------------------ Main ------------------------
+main() {
+  require_root
+  require_ubuntu_2204
+  ask_inputs
+  install_base
+  install_acme
+  issue_cert
+  install_xray
+  gen_ids
+  write_xray_config
+  write_nginx_config
+  setup_firewall
+  start_services
+  install_menu
+  print_summary
+  log "All done. Use 'vps-menu' to manage users."
+}
+main "$@"
