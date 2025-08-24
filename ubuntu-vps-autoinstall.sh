@@ -1,4 +1,3 @@
-curl -fsSL https://raw.githubusercontent.com/anyplaceholder/code-drops/main/ubuntu-vps-autoinstall.sh -o ubuntu-vps-autoinstall.sh || cat > ubuntu-vps-autoinstall.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -590,9 +589,8 @@ print_summary() {
   echo
   echo "Client details saved at /etc/vpspanel/clients.txt"
   echo
-  read -n 1 -s -r -p "Press any key to reboot the system..."
-  echo
-  reboot
+  echo "Installation complete! You can now use the 'vps' command to access the menu."
+  echo "No reboot is required. All services are already running."
 }
 
 # ==================== MAIN ====================
@@ -620,5 +618,3 @@ main() {
 # Run main function
 main "$@"
 exit 0
-EOF
-bash ubuntu-vps-autoinstall.sh
