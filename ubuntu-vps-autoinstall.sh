@@ -105,8 +105,8 @@ install_xray() {
 
 # ------------------------ Config Generation ------------------------
 gen_ids() {
-  VLESS_ID="$(xray uuid)"
-  VMESS_ID="$(xray uuid)"
+  VLESS_ID="$(/usr/local/bin/xray uuid)"
+  VMESS_ID="$(/usr/local/bin/xray uuid)"
   TROJAN_PSW="$(head -c 12 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 16)"
   echo "$VLESS_ID" > /etc/xray/.vless_id
   echo "$VMESS_ID" > /etc/xray/.vmess_id
@@ -164,79 +164,78 @@ EOF
 
 write_nginx_config() {
   log "Configuring Nginx reverse proxy..."
-  cat > "$NGINX_DIR/sites-available/xray.conf" <<'EOF'
+  cat > "$NGINX_DIR/sites-available/xray.conf" <<EOF
 server {
     listen 80;
     listen [::]:80;
-    server_name DOMAIN_PLACEHOLDER;
+    server_name $DOMAIN;
     root /var/www/html;
     index index.html;
     location / {
-        try_files $uri $uri/ =404;
+        try_files \$uri \$uri/ =404;
     }
     location /vless {
         proxy_redirect off;
         proxy_pass http://127.0.0.1:10001;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
+        proxy_set_header Host \$host;
     }
     location /vmess {
         proxy_redirect off;
         proxy_pass http://127.0.0.1:10002;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
+        proxy_set_header Host \$host;
     }
     location /trojan {
         proxy_redirect off;
         proxy_pass http://127.0.0.1:10003;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
+        proxy_set_header Host \$host;
     }
 }
 server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
-    server_name DOMAIN_PLACEHOLDER;
+    server_name $DOMAIN;
     ssl_certificate /etc/ssl/xray/fullchain.pem;
     ssl_certificate_key /etc/ssl/xray/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
     root /var/www/html;
     index index.html;
-    location / { try_files $uri $uri/ =404; }
+    location / { try_files \$uri \$uri/ =404; }
     location /vless {
         proxy_redirect off;
         proxy_pass http://127.0.0.1:10001;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
+        proxy_set_header Host \$host;
     }
     location /vmess {
         proxy_redirect off;
         proxy_pass http://127.0.0.1:10002;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
+        proxy_set_header Host \$host;
     }
     location /trojan {
         proxy_redirect off;
         proxy_pass http://127.0.0.1:10003;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
+        proxy_set_header Host \$host;
     }
 }
 EOF
-  sed -i "s/DOMAIN_PLACEHOLDER/$DOMAIN/g" "$NGINX_DIR/sites-available/xray.conf"
   rm -f "$NGINX_DIR/sites-enabled/default" || true
   ln -sf "$NGINX_DIR/sites-available/xray.conf" "$NGINX_DIR/sites-enabled/xray.conf"
   mkdir -p "$WWW_ROOT"
@@ -284,7 +283,7 @@ list_ssh_users() {
 
 del_ssh_user() {
   read -rp "Username to delete: " u
-  userdel -r "$u" && echo "Deleted $u"
+  userdel -r "$u" 2>/dev/null && echo "Deleted $u" || echo "Error deleting user $u"
 }
 
 add_client_generic() {
@@ -297,7 +296,7 @@ add_client_generic() {
     newitem="{\"password\":\"$pw\",\"email\":\"$email\"}"
   else
     local uuid
-    uuid=$(xray uuid)
+    uuid=$(/usr/local/bin/xray uuid)
     if [[ "$proto" == "vmess" ]]; then
       newitem="{\"id\":\"$uuid\",\"alterId\":0,\"email\":\"$email\"}"
     else
@@ -305,28 +304,32 @@ add_client_generic() {
     fi
   fi
   tmp="$(mktemp)"
-  jq --argjson item "$newitem" '.inbounds[] | select(.protocol=="'"$proto"'") | .settings.clients += [ '"$newitem"' ]' "$XRAY_DIR/config.json" >/dev/null 2>&1 || true
-  # safer: rewrite file via jq
-  jq --argjson item "$newitem" '
-    (.inbounds[] | select(.protocol=="'"$proto"'") | .settings.clients) += [ $item ]
-  ' "$XRAY_DIR/config.json" > "$tmp"
-  mv "$tmp" "$XRAY_DIR/config.json"
-  systemctl reload xray
-  echo
-  line
-  echo "Client created for $proto:"
-  if [[ "$proto" == "trojan" ]]; then
-    echo "trojan://$pw@$DOMAIN:443?security=tls&type=ws&path=$path#$email"
-  elif [[ "$proto" == "vmess" ]]; then
-    # Build VMess JSON link
-    uuid=$(jq -r '.inbounds[] | select(.protocol=="vmess") | .settings.clients[-1].id' "$XRAY_DIR/config.json")
-    vmess_json=$(jq -n --arg v "$uuid" --arg h "$DOMAIN" --arg p "$path" '{v: "2", ps: $h, add: $h, port: "443", id: $v, aid: "0", net: "ws", type: "", host: $h, path: $p, tls: "tls"}')
-    echo "vmess://$(echo "$vmess_json" | base64 -w0)"
+  # Use jq to add the new client to the config
+  jq --argjson item "$newitem" --arg proto "$proto" \
+    '(.inbounds[] | select(.protocol == $proto) | .settings.clients) += [$item]' \
+    "$XRAY_DIR/config.json" > "$tmp"
+  
+  if [ $? -eq 0 ]; then
+    mv "$tmp" "$XRAY_DIR/config.json"
+    systemctl reload xray
+    echo
+    line
+    echo "Client created for $proto:"
+    if [[ "$proto" == "trojan" ]]; then
+      echo "trojan://$pw@$DOMAIN:443?security=tls&type=ws&path=$path#$email"
+    elif [[ "$proto" == "vmess" ]]; then
+      # Build VMess JSON link
+      vmess_json=$(jq -n --arg v "$uuid" --arg h "$DOMAIN" --arg p "$path" \
+        '{v: "2", ps: $email, add: $h, port: "443", id: $v, aid: "0", net: "ws", type: "", host: $h, path: $p, tls: "tls"}')
+      echo "vmess://$(echo "$vmess_json" | base64 -w0)"
+    else
+      echo "vless://$uuid@$DOMAIN:443?encryption=none&security=tls&type=ws&path=$path&host=$DOMAIN#$email"
+    fi
+    line
   else
-    uuid=$(jq -r '.inbounds[] | select(.protocol=="vless") | .settings.clients[-1].id' "$XRAY_DIR/config.json")
-    echo "vless://$uuid@$DOMAIN:443?encryption=none&security=tls&type=ws&path=$path&host=$DOMAIN#$email"
+    err "Failed to add client"
+    rm -f "$tmp"
   fi
-  line
 }
 
 menu() {
@@ -343,6 +346,7 @@ menu() {
   echo "[06] Add TROJAN client"
   echo "[07] Show base links"
   echo "[08] Show service status"
+  echo "[09] Restart Xray service"
   echo "[00] Exit"
   line
   read -rp "Select menu: " ans
@@ -355,11 +359,12 @@ menu() {
     6|06) add_client_generic "trojan" "/trojan" "password" "TROJAN"; pause;;
     7|07)
       echo "VLESS base: vless://$(cat /etc/xray/.vless_id)@$DOMAIN:443?encryption=none&security=tls&type=ws&path=/vless&host=$DOMAIN#base"
-      vmjson=$(jq -n --arg v "$(cat /etc/xray/.vmess_id)" --arg h "$DOMAIN" '{v:"2",ps:$h,add:$h,port:"443",id:$v,aid:"0",net:"ws",type:"",host:$h,path:"/vmess",tls:"tls"}')
+      vmjson=$(jq -n --arg v "$(cat /etc/xray/.vmess_id)" --arg h "$DOMAIN" '{v:"2",ps:"base",add:$h,port:"443",id:$v,aid:"0",net:"ws",type:"",host:$h,path:"/vmess",tls:"tls"}')
       echo "VMESS base: vmess://$(echo "$vmjson" | base64 -w0)"
       echo "TROJAN base: trojan://$(cat /etc/xray/.trojan_pw)@$DOMAIN:443?security=tls&type=ws&path=/trojan#base"
       pause;;
     8|08) systemctl status xray --no-pager; systemctl status nginx --no-pager; pause;;
+    9|09) systemctl restart xray; echo "Xray service restarted"; pause;;
     0|00) exit 0;;
     *) echo "Invalid option"; pause;;
   esac
@@ -392,7 +397,7 @@ print_summary() {
   echo "------------------------------------------------------------"
   echo " Base clients:"
   echo "  - VLESS : vless://$(cat /etc/xray/.vless_id)@$DOMAIN:443?encryption=none&security=tls&type=ws&path=/vless&host=$DOMAIN#base"
-  vmjson=$(jq -n --arg v "$(cat /etc/xray/.vmess_id)" --arg h "$DOMAIN" '{v:"2",ps:$h,add:$h,port:"443",id:$v,aid:"0",net:"ws",type:"",host:$h,path:"/vmess",tls:"tls"}')
+  vmjson=$(jq -n --arg v "$(cat /etc/xray/.vmess_id)" --arg h "$DOMAIN" '{v:"2",ps:"base",add:$h,port:"443",id:$v,aid:"0",net:"ws",type:"",host:$h,path:"/vmess",tls:"tls"}')
   echo "  - VMESS : vmess://$(echo "$vmjson" | base64 -w0)"
   echo "  - TROJAN: trojan://$(cat /etc/xray/.trojan_pw)@$DOMAIN:443?security=tls&type=ws&path=/trojan#base"
   echo "============================================================"
